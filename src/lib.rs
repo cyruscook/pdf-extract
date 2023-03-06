@@ -69,7 +69,8 @@ impl From<lopdf::Error> for OutputError {
 }
 
 macro_rules! dlog {
-    ($($e:expr),*) => { {$(let _ = $e;)*} }
+    //($($e:expr),*) => { {$(let _ = $e;)*} }
+    ($($e:expr),*) => { {;} }
     //($($t:tt)*) => { println!($($t)*) }
 }
 
@@ -459,7 +460,7 @@ impl<'a> PdfSimpleFont<'a> {
                                 }
                                 dlog!("{} = {} ({:?})", code, name, unicode);
                                 if let Some(ref mut unicode_map) = unicode_map {
-                                    dlog!("{} {}", code, unicode_map[&(code as u32)]);
+                                    //dlog!("{} {}", code, unicode_map[&(code as u32)]);
                                 }
                                 code += 1;
                             }
@@ -467,8 +468,8 @@ impl<'a> PdfSimpleFont<'a> {
                         }
                     }
                 }
-                let name = pdf_to_utf8(encoding.get(b"Type").unwrap().as_name().unwrap());
-                dlog!("name: {}", name);
+                //let name = pdf_to_utf8(encoding.get(b"Type").unwrap().as_name().unwrap());
+                //dlog!("name: {}", name);
 
                 encoding_table = Some(table);
             }
