@@ -9,7 +9,7 @@ extern crate type1_encoding_parser;
 extern crate unicode_normalization;
 use encoding::all::UTF_16BE;
 use encoding::{DecoderTrap, Encoding};
-use error::{OutputError, Res};
+pub use error::{OutputError, Res};
 use euclid::vec2;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -438,7 +438,6 @@ impl<'a> PdfSimpleFont<'a> {
             };
             //dlog!("charset {:?}", charset);
         }
-
         let mut unicode_map = get_unicode_map(doc, font)?;
 
         let mut encoding_table = None;
@@ -494,10 +493,10 @@ impl<'a> PdfSimpleFont<'a> {
                                         }
                                     }
                                 }
-                                dlog!("{} = {} ({:?})", code, name, unicode);
+                                /*dlog!("{} = {} ({:?})", code, name, unicode);
                                 if let Some(ref mut unicode_map) = unicode_map {
                                     dlog!("{} {}", code, unicode_map[&(code as u32)]);
-                                }
+                                }*/
                                 code += 1;
                             }
                             _ => {
@@ -506,8 +505,8 @@ impl<'a> PdfSimpleFont<'a> {
                         }
                     }
                 }
-                let name = pdf_to_utf8(encoding.get(b"Type")?.as_name()?);
-                dlog!("name: {}", name?);
+                //let name = pdf_to_utf8(encoding.get(b"Type")?.as_name()?);
+                //dlog!("name: {}", name?);
 
                 encoding_table = Some(table);
             }
@@ -965,7 +964,7 @@ impl<'a> PdfCIDFont<'a> {
             maybe_get_obj(doc, font, b"Encoding").expect("Encoding required in type0 fonts");
         dlog!("base_name {} {:?}", base_name, font);
 
-        match *encoding {
+        /*match *encoding {
             Object::Name(ref name) => {
                 let name = pdf_to_utf8(name)?;
                 dlog!("encoding {:?}", name);
@@ -981,7 +980,7 @@ impl<'a> PdfCIDFont<'a> {
                 );
             }
             _ => return Err("Unsupported formatting".into()),
-        }
+        }*/
 
         // Sometimes a Type0 font might refer to the same underlying data as regular font. In this case we may be able to extract some encoding
         // data.
@@ -1259,7 +1258,10 @@ fn show_text(
     output: &mut dyn OutputDev,
 ) -> Res<()> {
     let ts = &mut gs.ts;
-    let font = ts.font.as_ref().unwrap();
+    let font = ts
+        .font
+        .as_ref()
+        .ok_or(OutputError::Other("No font available".to_string()))?;
     //let encoding = font.encoding.as_ref().map(|x| &x[..]).unwrap_or(&PDFDocEncoding);
     dlog!("{:?}", font.decode(s));
     dlog!("{:?}", font.decode(s).as_bytes());
@@ -1497,6 +1499,7 @@ impl<'a> Processor<'a> {
         doc: &'a Document,
         content: Vec<u8>,
         resources: &'a Dictionary,
+        annots: &'a Dictionary,
         media_box: &MediaBox,
         output: &mut dyn OutputDev,
     ) -> Res<()> {
@@ -1668,9 +1671,18 @@ impl<'a> Processor<'a> {
                         .entry(name.to_owned())
                         .or_insert_with(|| {
                             let dict = get::<&Dictionary>(doc, fonts, name);
-                            make_font(doc, dict).ok()
+                            match make_font(doc, dict) {
+                                Ok(x) => Some(x),
+                                Err(e) => {
+                                    println!("Couldn't make font {:?} because {:?}", dict, e);
+                                    None
+                                }
+                            }
                         })
                         .clone();
+                    if font.is_none() {
+                        println!("No such font {:?}", pdf_to_utf8(name));
+                    }
                     {
                         /*let file = font.get_descriptor().and_then(|desc| desc.get_file());
                         if let Some(file) = file {
@@ -1858,7 +1870,7 @@ impl<'a> Processor<'a> {
                         .and_then(|n| n.as_dict().ok())
                         .unwrap_or(resources);
                     let contents = get_contents(xf);
-                    Processor::process_stream(doc, contents, resources, media_box, output)?;
+                    Processor::process_stream(doc, contents, resources, annots, media_box, output)?;
                 }
                 _ => {
                     dlog!("unknown operation {:?}", operation);
@@ -2354,6 +2366,7 @@ fn get_inherited<'a, T: FromObj<'a>>(
 /// Parse a given document and output it to `output`
 pub fn output_doc(doc: &Document, output: &mut dyn OutputDev) -> Res<()> {
     let empty_resources = &Dictionary::new();
+    let empty_annots = &Dictionary::new();
 
     let pages = doc.get_pages();
     for dict in pages {
@@ -2376,12 +2389,16 @@ pub fn output_doc(doc: &Document, output: &mut dyn OutputDev) -> Res<()> {
         let art_box =
             get::<Option<Vec<f64>>>(doc, page_dict, b"ArtBox").map(|x| (x[0], x[1], x[2], x[3]));
 
+        let annots = get::<Option<&Dictionary>>(doc, page_dict, b"Annots").unwrap_or(empty_annots);
+        println!("{:#?}", annots);
+
         output.begin_page(page_num, &media_box, art_box)?;
 
         Processor::process_stream(
             doc,
             doc.get_page_content(dict.1)?,
             resources,
+            annots,
             &media_box,
             output,
         )?;
